@@ -1,11 +1,12 @@
-# scraper.py (日付指定成功時のコード)
+# scraper.py (Render対応・最終完成版)
 
 import time
 import re
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+# webdriver-managerはRender環境では使わないため、コメントアウトまたは削除してもOK
+# from webdriver_manager.chrome import ChromeDriverManager 
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
 from selenium.webdriver.support.ui import WebDriverWait
@@ -16,43 +17,97 @@ from selenium.webdriver.chrome.options import Options
 def scrape_product_details(driver, product_url):
     details = {
         'brand_name': '取得失敗', 'category_1': '', 'category_2': '', 'category_3': '',
-        'access_count': '取得失敗', 'wish_count': '取得失敗', 'inquiry_count': '取得失敗',
-        'price': '取得失敗', 'origin_place': '取得失敗', 'shipping_place': '取得失敗'
+        'access_count': '0', 'wish_count': '0', 'inquiry_count': '0',
+        'price': '¥0', 'origin_place': '取得失敗', 'shipping_place': '取得失敗',
+        'listing_date': '取得失敗',
+        '在庫ステータ-ス': '無在庫'
     }
     try:
         driver.get(product_url)
+        
+        if "ページが見つかりませんでした" in driver.title or "出品がとりやめられました" in driver.page_source:
+            print(f"    -> ページ削除済みまたはアクセス不可: {product_url}")
+            details['brand_name'] = 'ページ削除済み'
+            return details
+
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, 's_brand')))
         detail_soup = BeautifulSoup(driver.page_source, 'html.parser')
         
-        brand_tag = detail_soup.find('a', class_='brand-link')
-        if brand_tag: details['brand_name'] = brand_tag.text.strip()
+        try:
+            stock_table_wrap = detail_soup.find('div', class_='cse-set__table-wrap')
+            if stock_table_wrap and '◎' in stock_table_wrap.get_text():
+                details['在庫ステータス'] = '有在庫'
+        except Exception: pass
         
-        all_ulikelinks = detail_soup.find_all('a', class_='ulinelink')
-        temp_categories = []
-        found_main_cat = False
-        for link in all_ulikelinks:
-            text = link.text.strip()
-            if '×' in text:
-                if not found_main_cat:
-                    all_matches = re.findall(r'（(.*?)）', text)
-                    if all_matches:
-                        details['category_1'] = all_matches[-1]
-                        found_main_cat = True
-                sub_cat_match = re.search(r'×\s*(.*?)(?=\s*（|$)', text)
-                if sub_cat_match: temp_categories.append(sub_cat_match.group(1))
-        details['category_2'] = temp_categories[0] if len(temp_categories) > 0 else ''
-        details['category_3'] = temp_categories[1] if len(temp_categories) > 1 else ''
-        details['access_count'] = detail_soup.find('span', class_='ac_count').text.strip() if detail_soup.find('span', class_='ac_count') else '取得失敗'
-        wish_tag = detail_soup.find('span', class_='fav_count')
-        details['wish_count'] = wish_tag.text.strip().replace('人', '') if wish_tag else '取得失敗'
-        details['inquiry_count'] = detail_soup.find('p', id='tabmenu_inqcnt').text.strip() if detail_soup.find('p', id='tabmenu_inqcnt') else '取得失敗'
-        details['price'] = detail_soup.find('span', class_='price_txt').text.strip() if detail_soup.find('span', class_='price_txt') else '取得失敗'
-        buying_area = detail_soup.find('dl', id='s_buying_area')
-        details['origin_place'] = buying_area.find('a').text.strip() if buying_area and buying_area.find('a') else '取得失敗'
-        shipment_area = detail_soup.find('dl', id='s_shipment_area')
-        details['shipping_place'] = shipment_area.find('dd').text.strip() if shipment_area and shipment_area.find('dd') else '取得失敗'
+        try:
+            brand_tag = detail_soup.find('a', class_='brand-link')
+            if brand_tag: details['brand_name'] = brand_tag.text.strip()
+        except Exception: pass
+        
+        try:
+            all_ulikelinks = detail_soup.find_all('a', class_='ulinelink')
+            temp_categories = []
+            found_main_cat = False
+            for link in all_ulikelinks:
+                text = link.text.strip()
+                if '×' in text:
+                    if not found_main_cat:
+                        all_matches = re.findall(r'（(.*?)）', text)
+                        if all_matches:
+                            details['category_1'] = all_matches[-1]
+                            found_main_cat = True
+                    sub_cat_match = re.search(r'×\s*(.*?)(?=\s*（|$)', text)
+                    if sub_cat_match: temp_categories.append(sub_cat_match.group(1))
+            details['category_2'] = temp_categories[0] if len(temp_categories) > 0 else ''
+            details['category_3'] = temp_categories[1] if len(temp_categories) > 1 else ''
+        except Exception: pass
+
+        try:
+            ac_tag = detail_soup.find('span', class_='ac_count')
+            if ac_tag: details['access_count'] = ac_tag.text.strip()
+        except Exception: pass
+        
+        try:
+            fav_tag = detail_soup.find('span', class_='fav_count')
+            if fav_tag: details['wish_count'] = fav_tag.text.strip().replace('人', '')
+        except Exception: pass
+        
+        try:
+            inq_tag = detail_soup.find('p', id='tabmenu_inqcnt')
+            if inq_tag: details['inquiry_count'] = inq_tag.text.strip()
+        except Exception: pass
+        
+        try:
+            price_tag = detail_soup.find('span', class_='price_txt')
+            if price_tag: details['price'] = price_tag.text.strip()
+        except Exception: pass
+        
+        try:
+            buy_area = detail_soup.find('dl', id='s_buying_area')
+            if buy_area and buy_area.find('a'): details['origin_place'] = buy_area.find('a').text.strip()
+        except Exception: pass
+        
+        try:
+            ship_area = detail_soup.find('dl', id='s_shipment_area')
+            if ship_area and ship_area.find('dd'): details['shipping_place'] = ship_area.find('dd').text.strip()
+        except Exception: pass
+        
+        try:
+            image_area = detail_soup.find('div', class_='item-main-image')
+            image_tag = image_area.find('img') if image_area else None
+            image_url = image_tag.get('src', '') if image_tag else ''
+            match = re.search(r'/item/(\d{6})/', image_url)
+            if match:
+                date_str = match.group(1)
+                details['listing_date'] = f"20{date_str[:2]}-{date_str[2:4]}-{date_str[4:]}"
+        except Exception: pass
+
+    except TimeoutException:
+        print(f"    -> タイムアウト: ページ構造が異なるか、読み込みに失敗: {product_url}")
+        details['brand_name'] = '構造違い/取得失敗'
     except Exception as e:
-        print(f"詳細取得エラー: {e}")
+        print(f"    詳細取得ページへのアクセス自体に失敗: {e}")
+        
     return details
 
 def analyze_buyma(base_url, start_date_str, end_date_str):
@@ -63,15 +118,21 @@ def analyze_buyma(base_url, start_date_str, end_date_str):
     start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
     end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
 
+    # ★★★ ここからがRender環境用の設定 ★★★
     options = Options()
-    options.add_argument('--headless=new')
-    options.add_argument('--disable-gpu')
-    options.add_argument('user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument('user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
     
     driver = None
     try:
-        service = Service(ChromeDriverManager().install())
+        # webdriver-manager を使わず、システムにインストールされたChromeを直接使う
+        service = Service()
         driver = webdriver.Chrome(service=service, options=options)
+        # ★★★ ここまでがRender環境用の設定 ★★★
+
         driver.implicitly_wait(10)
         
         BASE_URL_DOMAIN = 'https://www.buyma.com'
@@ -103,16 +164,12 @@ def analyze_buyma(base_url, start_date_str, end_date_str):
                     if '成約日' in p.text:
                         contract_date_text = p.text
                         break
-                
                 if contract_date_text == '取得失敗': continue
-                
                 date_match = re.search(r'(\d{4}/\d{2}/\d{2})', contract_date_text)
                 if not date_match: continue
                 
                 item_date = datetime.strptime(date_match.group(1), '%Y/%m/%d')
-
                 if item_date < start_date:
-                    print("指定された開始日より古いデータに到達したため、リスト収集を終了します。")
                     stop_scraping = True
                     break
                 
@@ -141,13 +198,11 @@ def analyze_buyma(base_url, start_date_str, end_date_str):
                     })
             
             if stop_scraping: break
-
             try:
                 next_button = driver.find_element(By.LINK_TEXT, '次へ')
                 driver.execute_script("arguments[0].click();", next_button)
                 page_count += 1
             except (NoSuchElementException, TimeoutException):
-                print("「次へ」ボタンが見つかりません。最後のページです。")
                 break
 
         final_results = []
@@ -167,19 +222,10 @@ def analyze_buyma(base_url, start_date_str, end_date_str):
                         if len(driver.window_handles) > 1: driver.close()
                         driver.switch_to.window(main_window)
                 
-                product_info = {
-                    '商品名': base_info.get('商品名'), 'ブランド名': details.get('brand_name'),
-                    '大カテゴリ': details.get('category_1'), '中カテゴリ': details.get('category_2'), '小カテゴリ': details.get('category_3'),
-                    '価格': details.get('price'), 'アクセス数': details.get('access_count'),
-                    'お気に入り登録数': details.get('wish_count'), 'お問い合わせ数': details.get('inquiry_count'),
-                    '注文情報': base_info.get('注文情報'), '成約日': base_info.get('成約日'), '出品日': base_info.get('出品日'),
-                    '買付地': details.get('origin_place'), '発送地': details.get('shipping_place'),
-                    '商品ページURL': base_info.get('商品ページURL')
-                }
+                product_info = base_info.copy()
+                product_info.update(details)
                 final_results.append(product_info)
-        
         return final_results
-
     except WebDriverException as e:
         print(f"WebDriverでエラーが発生しました: {e}")
         return []
