@@ -1,0 +1,153 @@
+{% extends 'layout.html' %}
+{% block title %}分析ツール{% endblock %}
+{% block content %}
+<h1>BUYMAアナリティクスツール</h1>
+
+{% if g.user %}
+<p>ようこそ、{{ g.user['username'] }}さん！</p>
+{% endif %}
+
+<form action="{{ url_for('tool') }}" method="post" onsubmit="showLoader()">
+    <label for="buyma_url">分析したいBUYMAの販売実績ページのURL（1ページ目）を入力してください:</label>
+    <input type="text" id="buyma_url" name="buyma_url" placeholder="https://www.buyma.com/buyer/..." required>
+    <div class="page-range-selector">
+        <div>
+            <label for="start_date">開始日:</label>
+            <input type="date" id="start_date" name="start_date" required>
+        </div>
+        <div>
+            <label for="end_date">終了日:</label>
+            <input type="date" id="end_date" name="end_date" required>
+        </div>
+    </div>
+    <button type="submit">分析開始</button>
+</form>
+<div id="loader" class="loader"></div>
+
+{% if dashboard_data_json and dashboard_data_json != 'null' %}
+<div id="dashboard-data-holder" data-dashboard='{{ dashboard_data_json }}' style="display: none;"></div>
+
+<hr style="margin-top: 2em; border: 1px solid #eee;">
+
+<div class="dashboard-header">
+    <h2>分析ダッシュボード</h2>
+    <div class="button-group">
+        <a href="{{ url_for('download_csv') }}" class="button-link download-button">CSVをダウンロード</a>
+        <a href="{{ url_for('clear_results') }}" class="button-link clear-button">クリアして再分析</a>
+    </div>
+</div>
+
+<div class="summary-cards">
+    <div class="card">
+        <h3>合計売上金額</h3>
+        <p id="summary-sales">---</p>
+    </div>
+    <div class="card">
+        <h3>総販売点数</h3>
+        <p id="summary-items">---</p>
+    </div>
+    <div class="card">
+        <h3>平均販売単価</h3>
+        <p id="summary-avg-price">---</p>
+    </div>
+</div>
+
+<div class="charts-grid">
+    <div class="chart-container">
+        <h3>ブランド別 売上合計</h3><canvas id="brandSalesChart"></canvas>
+    </div>
+    <div class="chart-container">
+        <h3>カテゴリ別 件数</h3><canvas id="categoryChart"></canvas>
+    </div>
+    <div class="chart-container full-width">
+        <h3>ブランド別 平均取引日数</h3><canvas id="deliveryDaysChart"></canvas>
+    </div>
+</div>
+{% endif %}
+
+{% if results and results[0] %}
+<hr style="margin-top: 2em; border: 1px solid #eee;">
+<h2>取得データ一覧 ({{ results|length }}件)</h2>
+<div style="overflow-x:auto;">
+    <table id="raw-data-table" class="display" style="width:100%">
+        <thead>
+            <tr>
+                <th>商品名</th>
+                <th>ブランド名</th>
+                <th>大カテゴリ</th>
+                <th>中カテゴリ</th>
+                <th>小カテゴリ</th>
+                <th>価格</th>
+                <th>アクセス数</th>
+                <th>お気に入り登録数</th>
+                <th>お問い合わせ数</th>
+                <th>注文情報</th>
+                <th>成約日</th>
+                <th>出品日</th>
+                <th>買付地</th>
+                <th>発送地</th>
+                <th>商品ページURL</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in results %}
+            <tr>
+                <td>{{ row['商品名'] }}</td>
+                <td>{{ row['ブランド名'] }}</td>
+                <td>{{ row['大カテゴリ'] }}</td>
+                <td>{{ row['中カテゴリ'] }}</td>
+                <td>{{ row['小カテゴリ'] }}</td>
+                <td>{{ row['価格'] }}</td>
+                <td>{{ row['アクセス数'] }}</td>
+                <td>{{ row['お気に入り登録数'] }}</td>
+                <td>{{ row['お問い合わせ数'] }}</td>
+                <td>{{ row['注文情報'] }}</td>
+                <td>{{ row['成約日'] }}</td>
+                <td>{{ row['出品日'] }}</td>
+                <td>{{ row['買付地'] }}</td>
+                <td>{{ row['発送地'] }}</td>
+                <td>{{ row['商品ページURL'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const dataHolder = document.getElementById('dashboard-data-holder');
+        if (dataHolder) {
+            try {
+                const dashboardData = JSON.parse(dataHolder.dataset.dashboard);
+                document.getElementById('summary-sales').textContent = dashboardData.summary.total_sales;
+                document.getElementById('summary-items').textContent = dashboardData.summary.total_items;
+                document.getElementById('summary-avg-price').textContent = dashboardData.summary.average_price;
+                new Chart(document.getElementById('brandSalesChart'), {
+                    type: 'bar',
+                    data: { labels: dashboardData.brand_sales_chart.labels, datasets: [{ label: '売上合計 (円)', data: dashboardData.brand_sales_chart.data, backgroundColor: 'rgba(230, 0, 45, 0.7)' }] },
+                    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false }
+                });
+                new Chart(document.getElementById('categoryChart'), {
+                    type: 'doughnut',
+                    data: { labels: dashboardData.category_chart.labels, datasets: [{ data: dashboardData.category_chart.data, backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF'] }] },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+                new Chart(document.getElementById('deliveryDaysChart'), {
+                    type: 'bar',
+                    data: { labels: dashboardData.delivery_days_chart.labels, datasets: [{ label: '平均日数', data: dashboardData.delivery_days_chart.data, backgroundColor: 'rgba(54, 162, 235, 0.7)' }] },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+            } catch (e) {
+                console.error('グラフデータの解析または描画中にエラーが発生しました:', e);
+            }
+        }
+        $('#raw-data-table').DataTable();
+    });
+    function showLoader() { document.getElementById('loader').style.display = 'block'; }
+</script>
+{% endblock %}
