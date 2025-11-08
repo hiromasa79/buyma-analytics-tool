@@ -207,21 +207,18 @@ def analyze_buyma(base_url, start_date_str, end_date_str):
 
         final_results = []
         if all_product_base_info:
-            main_window = driver.current_window_handle
+            # main_windowの管理と新しいタブの作成をやめ、メモリ消費を抑える
             for i, base_info in enumerate(all_product_base_info):
                 print(f"詳細情報取得中 ({i+1}/{len(all_product_base_info)})")
                 details = {}
                 if base_info['商品ページURL'] != 'URL取得失敗':
                     try:
-                        driver.switch_to.new_window('tab')
+                        # 新しいタブは開かず、現在のタブでURLにアクセスする
+                        # scrape_product_details関数が内部で driver.get() を呼ぶのでこれでOK
                         details = scrape_product_details(driver, base_info['商品ページURL'])
-                        driver.close()
-                        driver.switch_to.window(main_window)
                     except Exception as e:
                         print(f"詳細ページアクセスエラー: {e}")
-                        if len(driver.window_handles) > 1: driver.close()
-                        driver.switch_to.window(main_window)
-                
+
                 product_info = base_info.copy()
                 product_info.update(details)
                 final_results.append(product_info)
